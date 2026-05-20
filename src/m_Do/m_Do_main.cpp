@@ -762,11 +762,21 @@ int game_main(int argc, char* argv[]) {
     }
 
 #if defined(TARGET_ANDROID)
-    if (auroraInfo.backend == BACKEND_OPENGLES) {
+    const AuroraBackend activeBackend = aurora_get_backend();
+    DuskLog.info("[Graphics] Active backend: {}", dusk::backend_id(activeBackend));
+    DuskLog.info("[Graphics] Window size: {}x{}", auroraInfo.windowSize.width, auroraInfo.windowSize.height);
+    DuskLog.info("[Graphics] Drawable size: {}x{}", auroraInfo.windowSize.native_fb_width,
+                 auroraInfo.windowSize.native_fb_height);
+    if (activeBackend != auroraInfo.backend) {
+        DuskLog.warn("[Graphics] Backend mismatch detected (AuroraInfo={}, aurora_get_backend={})",
+                     dusk::backend_id(auroraInfo.backend), dusk::backend_id(activeBackend));
+    }
+
+    if (activeBackend == BACKEND_OPENGLES) {
         DuskLog.info("[Graphics] OpenGL ES 3 initialized successfully.");
-    } else if (auroraInfo.backend == BACKEND_VULKAN) {
+    } else if (activeBackend == BACKEND_VULKAN) {
         DuskLog.info("[Graphics] Vulkan initialized because it was explicitly requested.");
-    } else if (auroraInfo.backend == BACKEND_NULL) {
+    } else if (activeBackend == BACKEND_NULL) {
         DuskLog.error("[Graphics] OpenGL ES 3 initialization failed.");
         DuskLog.error("[Graphics] Reason: Aurora initialized the null graphics backend.");
     }
@@ -779,7 +789,7 @@ int game_main(int argc, char* argv[]) {
 #endif
 
     VISetWindowTitle(
-        fmt::format("Dusklight {} [{}]", DUSK_WC_DESCRIBE, dusk::backend_name(auroraInfo.backend))
+        fmt::format("Dusklight {} [{}]", DUSK_WC_DESCRIBE, dusk::backend_name(aurora_get_backend()))
         .c_str());
 
     if (dusk::getSettings().video.lockAspectRatio) {
@@ -803,7 +813,7 @@ int game_main(int argc, char* argv[]) {
     dusk::audio::EnableHrtf = dusk::getSettings().audio.enableHrtf;
 
     // Run ImGui UI loop if Aurora couldn't initialize a backend
-    if (auroraInfo.backend == BACKEND_NULL) {
+    if (aurora_get_backend() == BACKEND_NULL) {
         launchUILoop();
         dusk::crash_reporting::shutdown();
         dusk::ShutdownFileLogging();
