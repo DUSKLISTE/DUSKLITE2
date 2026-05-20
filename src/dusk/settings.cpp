@@ -147,10 +147,12 @@ UserSettings g_userSettings = {
         .enableAdrenoCompatibilityMode {"backend.enableAdrenoCompatibilityMode", true},
         .disableMSAAOnAndroid {"backend.disableMSAAOnAndroid", true},
         .preferConservativeFramebufferFormats {"backend.preferConservativeFramebufferFormats", true},
+        .performanceProfile {"backend.performanceProfile", AndroidPerformanceProfile::Auto},
 #else
         .enableAdrenoCompatibilityMode {"backend.enableAdrenoCompatibilityMode", false},
         .disableMSAAOnAndroid {"backend.disableMSAAOnAndroid", false},
         .preferConservativeFramebufferFormats {"backend.preferConservativeFramebufferFormats", false},
+        .performanceProfile {"backend.performanceProfile", AndroidPerformanceProfile::Balanced},
 #endif
         .wasPresetChosen {"backend.wasPresetChosen", false},
         .checkForUpdates {"backend.checkForUpdates", true},
@@ -304,6 +306,7 @@ void registerSettings() {
     Register(g_userSettings.backend.enableAdrenoCompatibilityMode);
     Register(g_userSettings.backend.disableMSAAOnAndroid);
     Register(g_userSettings.backend.preferConservativeFramebufferFormats);
+    Register(g_userSettings.backend.performanceProfile);
     Register(g_userSettings.backend.wasPresetChosen);
     Register(g_userSettings.backend.checkForUpdates);
     Register(g_userSettings.backend.cardFileType);

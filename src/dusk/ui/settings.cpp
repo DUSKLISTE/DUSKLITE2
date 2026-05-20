@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 
 namespace dusk::ui {
 namespace {
@@ -187,6 +188,46 @@ std::string_view backend_description(AuroraBackend backend) {
         return "Debug backend with no game rendering.";
     }
 }
+
+constexpr std::array kAndroidPerformanceProfiles = {
+    AndroidPerformanceProfile::Auto,
+    AndroidPerformanceProfile::Quality,
+    AndroidPerformanceProfile::Balanced,
+    AndroidPerformanceProfile::Performance,
+    AndroidPerformanceProfile::LowEndGpu,
+};
+
+std::string_view performance_profile_name(AndroidPerformanceProfile profile) {
+    switch (profile) {
+    case AndroidPerformanceProfile::Quality:
+        return "Qualidade";
+    case AndroidPerformanceProfile::Balanced:
+        return "Balanceado";
+    case AndroidPerformanceProfile::Performance:
+        return "Desempenho";
+    case AndroidPerformanceProfile::LowEndGpu:
+        return "GPU fraca";
+    case AndroidPerformanceProfile::Auto:
+    default:
+        return "Auto";
+    }
+}
+
+std::string_view performance_profile_description(AndroidPerformanceProfile profile) {
+    switch (profile) {
+    case AndroidPerformanceProfile::Quality:
+        return "Prioriza qualidade de imagem. Pode reduzir desempenho em GPUs fracas.";
+    case AndroidPerformanceProfile::Balanced:
+        return "Equilibra qualidade e desempenho para a maioria dos aparelhos Android.";
+    case AndroidPerformanceProfile::Performance:
+        return "Reduz carga gráfica para melhorar estabilidade e FPS.";
+    case AndroidPerformanceProfile::LowEndGpu:
+        return "Modo conservador para GPUs fracas (ex.: Adreno 610).";
+    case AndroidPerformanceProfile::Auto:
+    default:
+        return "Escolhe automaticamente um perfil com foco em compatibilidade.";
+    }
+}
 #endif
 
 std::vector<AuroraBackend> available_backends() {
@@ -225,6 +266,74 @@ AuroraBackend configured_backend() {
     }
     return configuredBackend;
 }
+
+void add_graphics_backend_select(Pane& leftPane, Pane& rightPane, std::function<bool()> isModified,
+                                 const char* keyLabel = "Graphics API") {
+    leftPane.register_control(
+        leftPane.add_select_button({
+            .key = keyLabel,
+            .getValue = [] { return Rml::String{backend_name(configured_backend())}; },
+            .isModified = std::move(isModified),
+        }),
+        rightPane, [](Pane& pane) {
+            const auto availableBackends = available_backends();
+            for (const auto backend : availableBackends) {
+                pane
+                    .add_button({
+                        .text = Rml::String{backend_name(backend)},
+                        .isSelected = [backend] { return configured_backend() == backend; },
+                    })
+                    .on_pressed([backend] {
+                        mDoAud_seStartMenu(kSoundItemChange);
+                        getSettings().backend.graphicsBackend.setValue(std::string{backend_id(backend)});
+                        config::Save();
+                    });
+#if defined(TARGET_ANDROID)
+                pane.add_rml(fmt::format("<small>{}</small><br/>", backend_description(backend)));
+#endif
+            }
+#if defined(TARGET_ANDROID)
+            pane.add_rml("<br/>OpenGL ES 3 is recommended on Android for compatibility.");
+#endif
+            pane.add_rml("<br/>Changes require a restart.");
+        });
+}
+
+#if defined(TARGET_ANDROID)
+void add_android_performance_profile_select(Pane& leftPane, Pane& rightPane,
+                                            std::function<bool()> isModified) {
+    leftPane.register_control(
+        leftPane.add_select_button({
+            .key = "Performance Profile",
+            .getValue =
+                [] {
+                    return Rml::String{
+                        performance_profile_name(getSettings().backend.performanceProfile.getValue())};
+                },
+            .isModified = std::move(isModified),
+        }),
+        rightPane, [](Pane& pane) {
+            for (const auto profile : kAndroidPerformanceProfiles) {
+                pane
+                    .add_button({
+                        .text = Rml::String{performance_profile_name(profile)},
+                        .isSelected =
+                            [profile] {
+                                return getSettings().backend.performanceProfile.getValue() == profile;
+                            },
+                    })
+                    .on_pressed([profile] {
+                        mDoAud_seStartMenu(kSoundItemChange);
+                        getSettings().backend.performanceProfile.setValue(profile);
+                        config::Save();
+                    });
+                pane.add_rml(fmt::format("<small>{}</small><br/>",
+                                         performance_profile_description(profile)));
+            }
+            pane.add_rml("<br/>Changes apply on next launch.");
+        });
+}
+#endif
 
 void reset_for_speedrun_mode() {
     mDoMain::developmentMode = -1;
@@ -677,36 +786,19 @@ SettingsWindow::SettingsWindow(bool prelaunch) : mPrelaunch(prelaunch) {
                     }
                     pane.add_rml("<br/>Changes require a restart.");
                 });
-            leftPane.register_control(
-                leftPane.add_select_button({
-                    .key = "Graphics Backend",
-                    .getValue = [] { return Rml::String{backend_name(configured_backend())}; },
-                    .isModified =
-                        [] {
-                            return getSettings().backend.graphicsBackend.getValue() !=
-                                   prelaunch_state().initialGraphicsBackend;
-                        },
-                }),
-                rightPane, [](Pane& pane) {
-                    const auto availableBackends = available_backends();
-                    for (const auto backend : availableBackends) {
-                        pane
-                            .add_button({
-                                .text = Rml::String{backend_name(backend)},
-                                .isSelected = [backend] { return configured_backend() == backend; },
-                            })
-                            .on_pressed([backend] {
-                                mDoAud_seStartMenu(kSoundItemChange);
-                                getSettings().backend.graphicsBackend.setValue(
-                                    std::string{backend_id(backend)});
-                                config::Save();
-                            });
+            add_graphics_backend_select(leftPane, rightPane,
+                                        [] {
+                                            return getSettings().backend.graphicsBackend.getValue() !=
+                                                   prelaunch_state().initialGraphicsBackend;
+                                        });
 #if defined(TARGET_ANDROID)
-                        pane.add_rml(fmt::format("<small>{}</small><br/>", backend_description(backend)));
-#endif
-                    }
-                    pane.add_rml("<br/>Changes require a restart.");
+            add_android_performance_profile_select(
+                leftPane, rightPane,
+                [] {
+                    return getSettings().backend.performanceProfile.getValue() !=
+                           getSettings().backend.performanceProfile.getDefaultValue();
                 });
+#endif
             leftPane.register_control(
                 leftPane.add_select_button({
                     .key = "Save File Type",
@@ -886,6 +978,22 @@ SettingsWindow::SettingsWindow(bool prelaunch) : mPrelaunch(prelaunch) {
                 .defaultValue = 100,
                 .step = 10,
             }, mPrelaunch);
+
+#if defined(TARGET_ANDROID)
+        leftPane.add_section("Graphics API");
+        add_graphics_backend_select(
+            leftPane, rightPane,
+            [] {
+                const auto& backend = getSettings().backend.graphicsBackend;
+                return backend.getValue() != backend.getDefaultValue();
+            });
+        add_android_performance_profile_select(
+            leftPane, rightPane,
+            [] {
+                const auto& profile = getSettings().backend.performanceProfile;
+                return profile.getValue() != profile.getDefaultValue();
+            });
+#endif
 
         leftPane.add_section("Rendering");
         config_bool_select(leftPane, rightPane, getSettings().game.enableTextureReplacements,

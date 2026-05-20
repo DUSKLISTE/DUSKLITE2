@@ -322,12 +322,30 @@ namespace dusk {
             }
             ImGui::PushFont(ImGuiEngine::fontLarge);
 #if defined(TARGET_ANDROID)
-            ImGuiTextCenter("Falha ao inicializar OpenGL ES 3.");
-            ImGuiTextCenter(
-                "\nEsta versão Android do Dusklight foi configurada para usar OpenGL ES 3 como API gráfica principal.");
-            ImGuiTextCenter(
-                "\nO dispositivo não conseguiu criar um backend OpenGL ES 3 compatível. Verifique os logs via adb logcat.");
-            const auto retryLabel = "Retry (OpenGL ES 3)";
+            const bool requestedVulkan = dusk::RequestedGraphicsBackend == BACKEND_VULKAN;
+            const bool requestedAuto = dusk::RequestedGraphicsBackend == BACKEND_AUTO;
+            const char* retryLabel = "Retry (OpenGL ES 3)";
+            const char* retryBackendId = "gles3";
+
+            if (requestedVulkan) {
+                ImGuiTextCenter("Falha ao inicializar Vulkan neste dispositivo.");
+                ImGuiTextCenter(
+                    "\nVulkan foi solicitado manualmente, mas o driver/GPU não forneceu suporte suficiente.");
+                ImGuiTextCenter(
+                    "\nUse OpenGL ES 3 para maior compatibilidade. Verifique os logs via adb logcat.");
+            } else if (requestedAuto) {
+                ImGuiTextCenter("Falha ao inicializar os backends gráficos disponíveis.");
+                ImGuiTextCenter("\nForam testados: OpenGL ES 3 e Vulkan.");
+                ImGuiTextCenter("\nUse OpenGL ES 3 para estabilidade e verifique os logs via adb logcat.");
+                retryBackendId = "auto";
+                retryLabel = "Retry (Auto)";
+            } else {
+                ImGuiTextCenter("Falha ao inicializar OpenGL ES 3.");
+                ImGuiTextCenter(
+                    "\nEsta versão Android do Dusklight foi configurada para usar OpenGL ES 3 como API gráfica principal.");
+                ImGuiTextCenter(
+                    "\nO dispositivo não conseguiu criar um backend OpenGL ES 3 compatível. Verifique os logs via adb logcat.");
+            }
 #else
             ImGuiTextCenter("Failed to initialize any graphics backend.");
             ImGuiTextCenter("\nDusklight requires Vulkan 1.1+, or Direct X 12.0.");
@@ -351,7 +369,7 @@ namespace dusk {
             if constexpr (SupportsProcessRestart) {
                 if (ImGui::Button(retryLabel)) {
 #if defined(TARGET_ANDROID)
-                    getSettings().backend.graphicsBackend.setValue("gles3");
+                    getSettings().backend.graphicsBackend.setValue(retryBackendId);
 #else
                     getSettings().backend.graphicsBackend.setValue("auto");
 #endif

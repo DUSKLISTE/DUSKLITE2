@@ -45,6 +45,14 @@ enum class FrameInterpMode : u8 {
     Unlimited = 2,
 };
 
+enum class AndroidPerformanceProfile : u8 {
+    Auto = 0,
+    Quality = 1,
+    Balanced = 2,
+    Performance = 3,
+    LowEndGpu = 4,
+};
+
 namespace config {
 template <>
 struct ConfigEnumRange<BloomMode> {
@@ -80,6 +88,12 @@ template <>
 struct ConfigEnumRange<FrameInterpMode> {
     static constexpr auto min = FrameInterpMode::Off;
     static constexpr auto max = FrameInterpMode::Unlimited;
+};
+
+template <>
+struct ConfigEnumRange<AndroidPerformanceProfile> {
+    static constexpr auto min = AndroidPerformanceProfile::Auto;
+    static constexpr auto max = AndroidPerformanceProfile::LowEndGpu;
 };
 }  // namespace config
 
@@ -226,6 +240,7 @@ struct UserSettings {
         ConfigVar<bool> enableAdrenoCompatibilityMode;
         ConfigVar<bool> disableMSAAOnAndroid;
         ConfigVar<bool> preferConservativeFramebufferFormats;
+        ConfigVar<AndroidPerformanceProfile> performanceProfile;
         ConfigVar<bool> wasPresetChosen;
         ConfigVar<bool> checkForUpdates;
         ConfigVar<int> cardFileType;
