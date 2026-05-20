@@ -198,9 +198,15 @@ jobs:
         run: ANDROID_STAGE_ABIS="${{matrix.abi}}" platforms/android/scripts/stage-jni-libs.sh
 
       - name: Decode keystore (optional)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > platforms/android/app/release-keystore.jks
+          if [ -n "${KEYSTORE_BASE64}" ]; then
+            echo "${KEYSTORE_BASE64}" | base64 -d > platforms/android/app/release-keystore.jks
+            echo "Release keystore decoded."
+          else
+            echo "KEYSTORE_BASE64 não configurado; seguindo com fallback para debug se release falhar."
+          fi
 
       - name: Build APK
         working-directory: platforms/android
