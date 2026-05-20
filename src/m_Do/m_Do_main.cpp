@@ -511,6 +511,8 @@ static AuroraBackend ResolveDesiredBackend(const cxxopts::ParseResult& parsedArg
 }
 
 #if defined(TARGET_ANDROID)
+using dusk::AndroidPerformanceProfile;
+
 static std::string ToLowerAscii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -703,7 +705,8 @@ static void ApplyAndroidCompatibilityProfile() {
 
     DuskLog.info("[Graphics] Internal resolution scale: {}x",
                  settings.game.internalResolutionScale.getValue());
-    DuskLog.info("[Graphics] MSAA: {}", settings.backend.disableMSAAOnAndroid ? "disabled" : "enabled");
+    DuskLog.info("[Graphics] MSAA: {}",
+                 settings.backend.disableMSAAOnAndroid.getValue() ? "disabled" : "enabled");
     DuskLog.info("[Graphics] Frame interpolation: {}",
                  settings.game.enableFrameInterpolation.getValue() == dusk::FrameInterpMode::Off
                      ? "disabled"
