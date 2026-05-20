@@ -24,6 +24,23 @@ android {
         versionName '0.1.0'
     }
 
+    signingConfigs {
+        release {
+            def keystorePath = "${projectDir}/release-keystore.jks"
+            if (System.getenv('CI') == 'true') {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv('KEYSTORE_PASSWORD')
+                keyAlias = System.getenv('KEY_ALIAS')
+                keyPassword = System.getenv('KEY_PASSWORD')
+            } else if (project.hasProperty('RELEASE_STORE_FILE')) {
+                storeFile = file(RELEASE_STORE_FILE)
+                storePassword = RELEASE_STORE_PASSWORD
+                keyAlias = RELEASE_KEY_ALIAS
+                keyPassword = RELEASE_KEY_PASSWORD
+            }
+        }
+    }
+
     buildTypes {
         debug {
             minifyEnabled false
@@ -31,6 +48,9 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (System.getenv('CI') == 'true' || project.hasProperty('RELEASE_STORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
