@@ -319,6 +319,19 @@
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install",
         "CMAKE_TOOLCHAIN_FILE": "$env{ANDROID_HOME}/ndk/$env{ANDROID_NDK_VERSION}/build/cmake/android.toolchain.cmake",
         "ANDROID_PLATFORM": "android-28",
+        "DUSK_ANDROID_ENABLE_GLES_BACKEND": {
+          "type": "BOOL",
+          "value": true
+        },
+        "DUSK_ANDROID_DEFAULT_GRAPHICS_BACKEND": "gles3",
+        "DUSK_ANDROID_DISABLE_VULKAN_BY_DEFAULT": {
+          "type": "BOOL",
+          "value": true
+        },
+        "DAWN_ENABLE_OPENGLES": {
+          "type": "BOOL",
+          "value": true
+        },
         "BUILD_SHARED_LIBS": {
           "type": "BOOL",
           "value": false

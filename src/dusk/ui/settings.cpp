@@ -91,14 +91,23 @@ bool try_parse_backend(std::string_view backend, AuroraBackend& outBackend) {
         outBackend = BACKEND_VULKAN;
         return true;
     }
-    if (backend == "opengl") {
-        outBackend = BACKEND_OPENGL;
-        return true;
-    }
-    if (backend == "opengles") {
+#if defined(TARGET_ANDROID)
+    if (backend == "opengl" || backend == "gl3" || backend == "gles3" ||
+        backend == "opengles" || backend == "opengles3")
+    {
         outBackend = BACKEND_OPENGLES;
         return true;
     }
+#else
+    if (backend == "opengl" || backend == "gl3") {
+        outBackend = BACKEND_OPENGL;
+        return true;
+    }
+    if (backend == "opengles" || backend == "opengles3" || backend == "gles3") {
+        outBackend = BACKEND_OPENGLES;
+        return true;
+    }
+#endif
     if (backend == "webgpu") {
         outBackend = BACKEND_WEBGPU;
         return true;
@@ -126,7 +135,11 @@ std::string_view backend_name(AuroraBackend backend) {
     case BACKEND_OPENGL:
         return "OpenGL";
     case BACKEND_OPENGLES:
+#if defined(TARGET_ANDROID)
+        return "OpenGL ES 3";
+#else
         return "OpenGL ES";
+#endif
     case BACKEND_WEBGPU:
         return "WebGPU";
     case BACKEND_NULL:
@@ -149,7 +162,11 @@ std::string_view backend_id(AuroraBackend backend) {
     case BACKEND_OPENGL:
         return "opengl";
     case BACKEND_OPENGLES:
+#if defined(TARGET_ANDROID)
+        return "gles3";
+#else
         return "opengles";
+#endif
     case BACKEND_WEBGPU:
         return "webgpu";
     case BACKEND_NULL:
@@ -157,17 +174,46 @@ std::string_view backend_id(AuroraBackend backend) {
     }
 }
 
+#if defined(TARGET_ANDROID)
+std::string_view backend_description(AuroraBackend backend) {
+    switch (backend) {
+    default:
+        return "Uses OpenGL ES 3 by default to improve compatibility on Android devices.";
+    case BACKEND_OPENGLES:
+        return "Main Android graphics backend. Recommended for Snapdragon 685 / Adreno 610 devices.";
+    case BACKEND_VULKAN:
+        return "Optional Android backend for manual testing. It may fail on some Snapdragon and Adreno devices.";
+    case BACKEND_NULL:
+        return "Debug backend with no game rendering.";
+    }
+}
+#endif
+
 std::vector<AuroraBackend> available_backends() {
     std::vector<AuroraBackend> backends;
     backends.emplace_back(BACKEND_AUTO);
     size_t backendCount = 0;
     const AuroraBackend* raw = aurora_get_available_backends(&backendCount);
+#if defined(TARGET_ANDROID)
+    auto append_if_available = [&](AuroraBackend backend) {
+        for (size_t i = 0; i < backendCount; ++i) {
+            if (raw[i] == backend) {
+                backends.emplace_back(backend);
+                return;
+            }
+        }
+    };
+    append_if_available(BACKEND_OPENGLES);
+    append_if_available(BACKEND_VULKAN);
+    append_if_available(BACKEND_NULL);
+#else
     for (size_t i = 0; i < backendCount; ++i) {
         // Do not expose NULL
         if (raw[i] != BACKEND_NULL) {
             backends.emplace_back(raw[i]);
         }
     }
+#endif
     return backends;
 }
 
@@ -655,6 +701,9 @@ SettingsWindow::SettingsWindow(bool prelaunch) : mPrelaunch(prelaunch) {
                                     std::string{backend_id(backend)});
                                 config::Save();
                             });
+#if defined(TARGET_ANDROID)
+                        pane.add_rml(fmt::format("<small>{}</small><br/>", backend_description(backend)));
+#endif
                     }
                     pane.add_rml("<br/>Changes require a restart.");
                 });
@@ -1369,6 +1418,23 @@ SettingsWindow::SettingsWindow(bool prelaunch) : mPrelaunch(prelaunch) {
                 .key = "Show Pipeline Compilation",
                 .helpText = "Show an overlay when shaders are being compiled for your hardware.",
             });
+#if defined(TARGET_ANDROID)
+        config_bool_select(leftPane, rightPane, getSettings().backend.enableAdrenoCompatibilityMode,
+            {
+                .key = "Adreno Compatibility Mode",
+                .helpText = "Use conservative Android graphics defaults for Snapdragon and Adreno devices.",
+            });
+        config_bool_select(leftPane, rightPane, getSettings().backend.disableMSAAOnAndroid,
+            {
+                .key = "Disable MSAA on Android",
+                .helpText = "Avoid multisampled render targets on Android GLES backends.",
+            });
+        config_bool_select(leftPane, rightPane, getSettings().backend.preferConservativeFramebufferFormats,
+            {
+                .key = "Conservative Framebuffers",
+                .helpText = "Prefer conservative framebuffer behavior for Android GLES compatibility.",
+            });
+#endif
         config_bool_select(leftPane, rightPane, getSettings().backend.checkForUpdates,
             {
                 .key = "Check for Updates",

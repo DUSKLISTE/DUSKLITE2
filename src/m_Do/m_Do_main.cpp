@@ -43,7 +43,11 @@
 #include "SSystem/SComponent/c_counter.h"
 #include <cstring>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include "SSystem/SComponent/c_API.h"
@@ -96,6 +100,10 @@
 
 #if DUSK_ENABLE_SENTRY_NATIVE
 #include "dusk/ui/reporting.hpp"
+#endif
+
+#if defined(TARGET_ANDROID)
+#include <sys/system_properties.h>
 #endif
 
 // --- GLOBALS ---
@@ -365,32 +373,183 @@ static bool IsBackendAvailable(AuroraBackend backend) {
     return false;
 }
 
+#if defined(TARGET_ANDROID)
+static constexpr std::string_view kAndroidBackendHelp = "auto, gles3, opengles3, opengl, gl3, vulkan, null";
+
+static bool IsAndroidBackendAllowed(AuroraBackend backend) {
+    return backend == BACKEND_OPENGLES || backend == BACKEND_VULKAN || backend == BACKEND_NULL;
+}
+
+static AuroraBackend ResolveAndroidBackendAlias(AuroraBackend backend) {
+    if (backend == BACKEND_AUTO || backend == BACKEND_OPENGL) {
+        return BACKEND_OPENGLES;
+    }
+    return backend;
+}
+#endif
+
 static AuroraBackend ResolveDesiredBackend(const cxxopts::ParseResult& parsedArgOptions) {
     AuroraBackend desiredBackend = BACKEND_AUTO;
+    const bool hasBackendArg = parsedArgOptions.count("backend") != 0;
+    std::string requestedBackend;
 
-    if (parsedArgOptions.count("backend") != 0) {
-        const std::string backendArg = parsedArgOptions["backend"].as<std::string>();
-        if (!dusk::try_parse_backend(backendArg, desiredBackend)) {
-            fmt::print(stderr, "Unknown backend: {}\n", backendArg);
+    if (hasBackendArg) {
+        requestedBackend = parsedArgOptions["backend"].as<std::string>();
+        if (!dusk::try_parse_backend(requestedBackend, desiredBackend)) {
+            fmt::print(stderr, "Unknown backend: {}\n", requestedBackend);
             exit(1);
         }
-    } else if (!dusk::try_parse_backend(
-                   static_cast<const std::string&>(dusk::getSettings().backend.graphicsBackend),
-                   desiredBackend))
-    {
-        DuskLog.warn("Unknown configured backend '{}', falling back to Auto",
-                     static_cast<const std::string&>(dusk::getSettings().backend.graphicsBackend));
-        desiredBackend = BACKEND_AUTO;
+    } else {
+        requestedBackend = static_cast<const std::string&>(dusk::getSettings().backend.graphicsBackend);
+#if defined(TARGET_ANDROID)
+        if (requestedBackend == "vulkan") {
+            DuskLog.warn(
+                "[Graphics] Saved Android graphics backend was Vulkan; migrating to Auto/OpenGL ES 3 unless Vulkan is "
+                "requested with --backend vulkan");
+            dusk::getSettings().backend.graphicsBackend.setValue("auto");
+            dusk::config::Save();
+            requestedBackend = "auto";
+        }
+#endif
+        if (!dusk::try_parse_backend(requestedBackend, desiredBackend)) {
+            DuskLog.warn("Unknown configured backend '{}', falling back to Auto", requestedBackend);
+            desiredBackend = BACKEND_AUTO;
+            requestedBackend = "auto";
+        }
     }
 
+#if defined(TARGET_ANDROID)
+    DuskLog.info("[Graphics] Platform: Android");
+    DuskLog.info("[Graphics] Vulkan default: disabled");
+    DuskLog.info("[Graphics] Default Android graphics backend: OpenGL ES 3");
+    DuskLog.info("[Graphics] Requested backend: {}", requestedBackend.empty() ? "auto" : requestedBackend);
+
+    desiredBackend = ResolveAndroidBackendAlias(desiredBackend);
+    if (!IsAndroidBackendAllowed(desiredBackend)) {
+        const auto message =
+            fmt::format("Backend '{}' is not available on Android. Use: {}.", requestedBackend, kAndroidBackendHelp);
+        DuskLog.error("[Graphics] {}", message);
+        if (hasBackendArg) {
+            fmt::print(stderr, "{}\n", message);
+            exit(1);
+        }
+        DuskLog.warn("[Graphics] Falling back to Auto/OpenGL ES 3 and updating saved Android backend");
+        dusk::getSettings().backend.graphicsBackend.setValue("auto");
+        dusk::config::Save();
+        requestedBackend = "auto";
+        desiredBackend = BACKEND_OPENGLES;
+    }
+
+    if (desiredBackend == BACKEND_VULKAN) {
+        DuskLog.info("[Graphics] Vulkan is disabled by default on Android, but was explicitly requested.");
+        DuskLog.info("[Graphics] Trying Vulkan...");
+    } else if (desiredBackend == BACKEND_OPENGLES) {
+        DuskLog.info("[Graphics] Resolved backend: gles3");
+        DuskLog.info("[Graphics] Trying OpenGL ES 3...");
+        DuskLog.info("[Graphics] Adreno compatibility mode: {}",
+                     dusk::getSettings().backend.enableAdrenoCompatibilityMode ? "enabled" : "disabled");
+    } else {
+        DuskLog.info("[Graphics] Resolved backend: {}", dusk::backend_id(desiredBackend));
+    }
+#endif
+
     if (!IsBackendAvailable(desiredBackend)) {
+#if defined(TARGET_ANDROID)
+        DuskLog.error("[Graphics] Requested backend '{}' is unavailable", dusk::backend_name(desiredBackend));
+        if (desiredBackend == BACKEND_OPENGLES) {
+            DuskLog.error("[Graphics] OpenGL ES 3 initialization failed.");
+            DuskLog.error("[Graphics] Reason: Aurora/Dawn did not report an available OpenGL ES backend.");
+        } else if (desiredBackend == BACKEND_VULKAN) {
+            DuskLog.error("[Graphics] Vulkan was requested manually but is unavailable. Use --backend gles3.");
+        }
+        desiredBackend = BACKEND_NULL;
+#else
         DuskLog.warn("Requested backend '{}' is unavailable, falling back to Auto",
                      dusk::backend_name(desiredBackend));
         desiredBackend = BACKEND_AUTO;
+#endif
     }
 
     return desiredBackend;
 }
+
+#if defined(TARGET_ANDROID)
+static std::string ToLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+static bool ContainsAscii(std::string_view value, std::string_view needle) {
+    return value.find(needle) != std::string_view::npos;
+}
+
+static std::string AndroidSystemProperty(const char* name) {
+    char value[PROP_VALUE_MAX] = {};
+    const int len = __system_property_get(name, value);
+    if (len <= 0) {
+        return {};
+    }
+    return std::string(value, static_cast<size_t>(len));
+}
+
+struct AndroidCompatibilityProfile {
+    bool snapdragon685 = false;
+    bool adreno610 = false;
+};
+
+static AndroidCompatibilityProfile DetectAndroidCompatibilityProfile() {
+    const auto boardPlatform = ToLowerAscii(AndroidSystemProperty("ro.board.platform"));
+    const auto hardware = ToLowerAscii(AndroidSystemProperty("ro.hardware"));
+    const auto productBoard = ToLowerAscii(AndroidSystemProperty("ro.product.board"));
+    const auto socModel = ToLowerAscii(AndroidSystemProperty("ro.soc.model"));
+
+    const auto hasSnapdragon685Marker = [](std::string_view value) {
+        return ContainsAscii(value, "snapdragon 685") || ContainsAscii(value, "sm6225") ||
+               ContainsAscii(value, "bengal") || ContainsAscii(value, "sdm685");
+    };
+
+    const bool snapdragon685 = hasSnapdragon685Marker(boardPlatform) ||
+                               hasSnapdragon685Marker(hardware) ||
+                               hasSnapdragon685Marker(productBoard) ||
+                               hasSnapdragon685Marker(socModel);
+
+    DuskLog.info("[Graphics] Target compatibility profile: Snapdragon 685 / Adreno 610");
+    DuskLog.info("[Graphics] Android SoC properties: ro.board.platform='{}', ro.hardware='{}', ro.product.board='{}', ro.soc.model='{}'",
+                 boardPlatform, hardware, productBoard, socModel);
+    DuskLog.info("[Graphics] Snapdragon 685 detected: {}", snapdragon685 ? "true" : "false");
+    DuskLog.info("[Graphics] Adreno 610 detected: {}", snapdragon685 ? "true" : "false");
+
+    return {
+        .snapdragon685 = snapdragon685,
+        .adreno610 = snapdragon685,
+    };
+}
+
+static void ApplyAndroidCompatibilityProfile() {
+    const auto profile = DetectAndroidCompatibilityProfile();
+    if (!profile.snapdragon685 && !profile.adreno610) {
+        return;
+    }
+
+    auto& settings = dusk::getSettings();
+    DuskLog.info("[Graphics] Applying conservative GLES3 settings for Snapdragon 685.");
+    settings.backend.enableAdrenoCompatibilityMode.setValue(true);
+    settings.backend.disableMSAAOnAndroid.setValue(true);
+    settings.backend.preferConservativeFramebufferFormats.setValue(true);
+    settings.game.internalResolutionScale.setValue(1);
+    settings.game.enableFrameInterpolation.setValue(dusk::FrameInterpMode::Off);
+    settings.game.shadowResolutionMultiplier.setValue(1);
+    settings.game.bloomMode.setValue(dusk::BloomMode::Classic);
+
+    DuskLog.info("[Graphics] Internal resolution scale: 1x");
+    DuskLog.info("[Graphics] MSAA: disabled");
+    DuskLog.info("[Graphics] Frame interpolation: disabled");
+    DuskLog.info("[Graphics] Backend: OpenGL ES 3");
+    dusk::config::Save();
+}
+#endif
 
 static void aurora_imgui_init_callback(const AuroraWindowSize* size) {
     dusk::ImGuiEngine_Initialize(size->scale);
@@ -513,7 +672,7 @@ int game_main(int argc, char* argv[]) {
             ("h,help", "Print usage")
             ("console", "Show the Windows console window for logs", cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
             ("dvd", "Path to DVD image file", cxxopts::value<std::string>())
-            ("backend", "Graphics API backend to use (auto, d3d12, d3d11, metal, vulkan, null)", cxxopts::value<std::string>())
+            ("backend", "Graphics API backend to use (auto, d3d12, d3d11, metal, vulkan, opengl, opengles, gles3, gl3, null)", cxxopts::value<std::string>())
             ("cvar", "Override configuration variables without modifying config", cxxopts::value<std::vector<std::string>>());
 
         arg_options.parse_positional({"dvd"});
@@ -543,6 +702,9 @@ int game_main(int argc, char* argv[]) {
     log_build_info();
 
     dusk::config::LoadFromUserPreferences();
+#if defined(TARGET_ANDROID)
+    ApplyAndroidCompatibilityProfile();
+#endif
     if (dusk::getSettings().game.speedrunMode) {
         dusk::resetForSpeedrunMode();
     }
@@ -585,8 +747,30 @@ int game_main(int argc, char* argv[]) {
         config.imGuiInitCallback = &aurora_imgui_init_callback;
         config.allowTextureReplacements = dusk::getSettings().game.enableTextureReplacements;
         config.allowTextureDumps = false;
+#if defined(TARGET_ANDROID)
+        if (dusk::getSettings().backend.enableAdrenoCompatibilityMode ||
+            dusk::getSettings().backend.disableMSAAOnAndroid)
+        {
+            config.msaa = 1;
+            config.maxTextureAnisotropy = 1;
+        }
+        if (dusk::getSettings().backend.preferConservativeFramebufferFormats) {
+            DuskLog.info("[Graphics] Conservative framebuffer formats: preferred");
+        }
+#endif
         auroraInfo = aurora_initialize(argc, argv, &config);
     }
+
+#if defined(TARGET_ANDROID)
+    if (auroraInfo.backend == BACKEND_OPENGLES) {
+        DuskLog.info("[Graphics] OpenGL ES 3 initialized successfully.");
+    } else if (auroraInfo.backend == BACKEND_VULKAN) {
+        DuskLog.info("[Graphics] Vulkan initialized because it was explicitly requested.");
+    } else if (auroraInfo.backend == BACKEND_NULL) {
+        DuskLog.error("[Graphics] OpenGL ES 3 initialization failed.");
+        DuskLog.error("[Graphics] Reason: Aurora initialized the null graphics backend.");
+    }
+#endif
 
 #ifdef DUSK_DISCORD
     if (dusk::getSettings().game.enableDiscordPresence) {

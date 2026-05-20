@@ -1,6 +1,10 @@
 #include "dusk/settings.h"
 #include "dusk/config.hpp"
 
+#if defined(TARGET_ANDROID) && !defined(DUSK_ANDROID_DEFAULT_GRAPHICS_BACKEND)
+#define DUSK_ANDROID_DEFAULT_GRAPHICS_BACKEND "gles3"
+#endif
+
 namespace dusk {
 
 UserSettings g_userSettings = {
@@ -132,9 +136,22 @@ UserSettings g_userSettings = {
     .backend = {
         .isoPath {"backend.isoPath", ""},
         .isoVerification {"backend.isoVerification", DiscVerificationState::Unknown},
+#if defined(TARGET_ANDROID)
+        .graphicsBackend {"backend.graphicsBackend", DUSK_ANDROID_DEFAULT_GRAPHICS_BACKEND},
+#else
         .graphicsBackend {"backend.graphicsBackend", "auto"},
+#endif
         .skipPreLaunchUI {"backend.skipPreLaunchUI", false},
         .showPipelineCompilation {"backend.showPipelineCompilation", false},
+#if defined(TARGET_ANDROID)
+        .enableAdrenoCompatibilityMode {"backend.enableAdrenoCompatibilityMode", true},
+        .disableMSAAOnAndroid {"backend.disableMSAAOnAndroid", true},
+        .preferConservativeFramebufferFormats {"backend.preferConservativeFramebufferFormats", true},
+#else
+        .enableAdrenoCompatibilityMode {"backend.enableAdrenoCompatibilityMode", false},
+        .disableMSAAOnAndroid {"backend.disableMSAAOnAndroid", false},
+        .preferConservativeFramebufferFormats {"backend.preferConservativeFramebufferFormats", false},
+#endif
         .wasPresetChosen {"backend.wasPresetChosen", false},
         .checkForUpdates {"backend.checkForUpdates", true},
         .cardFileType {"backend.cardFileType", static_cast<int>(CARD_GCIFOLDER)},
@@ -284,6 +301,9 @@ void registerSettings() {
     Register(g_userSettings.backend.graphicsBackend);
     Register(g_userSettings.backend.skipPreLaunchUI);
     Register(g_userSettings.backend.showPipelineCompilation);
+    Register(g_userSettings.backend.enableAdrenoCompatibilityMode);
+    Register(g_userSettings.backend.disableMSAAOnAndroid);
+    Register(g_userSettings.backend.preferConservativeFramebufferFormats);
     Register(g_userSettings.backend.wasPresetChosen);
     Register(g_userSettings.backend.checkForUpdates);
     Register(g_userSettings.backend.cardFileType);

@@ -321,11 +321,21 @@ namespace dusk {
                 ImGui::PopFont();
             }
             ImGui::PushFont(ImGuiEngine::fontLarge);
+#if defined(TARGET_ANDROID)
+            ImGuiTextCenter("Falha ao inicializar OpenGL ES 3.");
+            ImGuiTextCenter(
+                "\nEsta versão Android do Dusklight foi configurada para usar OpenGL ES 3 como API gráfica principal.");
+            ImGuiTextCenter(
+                "\nO dispositivo não conseguiu criar um backend OpenGL ES 3 compatível. Verifique os logs via adb logcat.");
+            const auto retryLabel = "Retry (OpenGL ES 3)";
+#else
             ImGuiTextCenter("Failed to initialize any graphics backend.");
             ImGuiTextCenter("\nDusklight requires Vulkan 1.1+, or Direct X 12.0.");
             ImGuiTextCenter("\nTry updating your Operating System and GPU drivers.");
+            const auto retryLabel = "Retry (Auto backend)";
+#endif
             const auto& style = ImGui::GetStyle();
-            const auto retrySize = ImGui::CalcTextSize("Retry (Auto backend)");
+            const auto retrySize = ImGui::CalcTextSize(retryLabel);
             const auto quitSize = ImGui::CalcTextSize("Quit");
             float buttonsWidth = quitSize.x + style.FramePadding.x * 2.0f;
             if constexpr (SupportsProcessRestart) {
@@ -339,8 +349,12 @@ namespace dusk {
             ImGui::SetCursorPosX(
                 ImMax(style.WindowPadding.x, (ImGui::GetWindowSize().x - buttonsWidth) * 0.5f));
             if constexpr (SupportsProcessRestart) {
-                if (ImGui::Button("Retry (Auto backend)")) {
+                if (ImGui::Button(retryLabel)) {
+#if defined(TARGET_ANDROID)
+                    getSettings().backend.graphicsBackend.setValue("gles3");
+#else
                     getSettings().backend.graphicsBackend.setValue("auto");
+#endif
                     config::Save();
                     RestartRequested = true;
                     IsRunning = false;
@@ -473,7 +487,11 @@ namespace dusk {
         case BACKEND_OPENGL:
             return "OpenGL"sv;
         case BACKEND_OPENGLES:
+#if defined(TARGET_ANDROID)
+            return "OpenGL ES 3"sv;
+#else
             return "OpenGL ES"sv;
+#endif
         case BACKEND_WEBGPU:
             return "WebGPU"sv;
         case BACKEND_NULL:
@@ -496,7 +514,11 @@ namespace dusk {
         case BACKEND_OPENGL:
             return "opengl"sv;
         case BACKEND_OPENGLES:
+#if defined(TARGET_ANDROID)
+            return "gles3"sv;
+#else
             return "opengles"sv;
+#endif
         case BACKEND_WEBGPU:
             return "webgpu"sv;
         case BACKEND_NULL:
@@ -525,14 +547,23 @@ namespace dusk {
             outBackend = BACKEND_VULKAN;
             return true;
         }
-        if (backend == "opengl") {
-            outBackend = BACKEND_OPENGL;
-            return true;
-        }
-        if (backend == "opengles") {
+#if defined(TARGET_ANDROID)
+        if (backend == "opengl" || backend == "gl3" || backend == "gles3" ||
+            backend == "opengles" || backend == "opengles3")
+        {
             outBackend = BACKEND_OPENGLES;
             return true;
         }
+#else
+        if (backend == "opengl" || backend == "gl3") {
+            outBackend = BACKEND_OPENGL;
+            return true;
+        }
+        if (backend == "opengles" || backend == "opengles3" || backend == "gles3") {
+            outBackend = BACKEND_OPENGLES;
+            return true;
+        }
+#endif
         if (backend == "webgpu") {
             outBackend = BACKEND_WEBGPU;
             return true;

@@ -223,6 +223,9 @@ struct UserSettings {
         ConfigVar<std::string> graphicsBackend;
         ConfigVar<bool> skipPreLaunchUI;
         ConfigVar<bool> showPipelineCompilation;
+        ConfigVar<bool> enableAdrenoCompatibilityMode;
+        ConfigVar<bool> disableMSAAOnAndroid;
+        ConfigVar<bool> preferConservativeFramebufferFormats;
         ConfigVar<bool> wasPresetChosen;
         ConfigVar<bool> checkForUpdates;
         ConfigVar<int> cardFileType;
