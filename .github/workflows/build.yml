@@ -197,15 +197,56 @@ jobs:
       - name: Stage stripped JNI library
         run: ANDROID_STAGE_ABIS="${{matrix.abi}}" platforms/android/scripts/stage-jni-libs.sh
 
+      - name: Decode keystore (optional)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > platforms/android/app/release-keystore.jks
+
       - name: Build APK
         working-directory: platforms/android
-        run: ./gradlew :app:assembleRelease --rerun-tasks
+        run: |
+          set -euo pipefail
+
+          APK_PATH=""
+          if ./gradlew :app:assembleRelease --rerun-tasks; then
+            for candidate in \
+              "app/build/outputs/apk/release/app-${{matrix.abi}}-release.apk" \
+              "app/build/outputs/apk/release/app-release.apk" \
+              "app/build/outputs/apk/release/app-${{matrix.abi}}-release-unsigned.apk" \
+              "app/build/outputs/apk/release/app-release-unsigned.apk"
+            do
+              if [ -f "$candidate" ]; then
+                APK_PATH="$candidate"
+                break
+              fi
+            done
+          else
+            ./gradlew :app:assembleDebug --rerun-tasks
+            for candidate in \
+              "app/build/outputs/apk/debug/app-${{matrix.abi}}-debug.apk" \
+              "app/build/outputs/apk/debug/app-debug.apk"
+            do
+              if [ -f "$candidate" ]; then
+                APK_PATH="$candidate"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK was generated."
+            find app/build/outputs -name "*.apk" -print || true
+            exit 1
+          fi
+
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+          echo "Selected APK: $APK_PATH"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: dusklight-${{env.DUSK_VERSION}}-android-${{matrix.artifact_arch}}
-          path: platforms/android/app/build/outputs/apk/release/app-${{matrix.abi}}-release-unsigned.apk
+          path: platforms/android/${{ env.APK_PATH }}
 
   build-windows:
     name: Build Windows (${{matrix.name}})
